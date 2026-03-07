@@ -8,7 +8,7 @@ services:
     environment:
       POSTGRES_USER: autodropship
       POSTGRES_PASSWORD: autodropship
-      POSTGRES_DB: autodropship_db
+      POSTGRES_DB: autodropship
     ports:
       - "5432:5432"
     volumes:
@@ -47,7 +47,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://autodropship:autodropship@db:5432/autodropship_db
+      DATABASE_URL: postgresql://autodropship:autodropship@db:5432/autodropship
       REDIS_URL: redis://redis:6379
       DEBUG: "True"
       SECRET_KEY: "your-secret-key-change-in-production"
