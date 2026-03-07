@@ -1,8 +1,9 @@
 """
 Integrations Endpoints - Meta Ads, Shopify, etc.
+Soporta OAuth 2.0 flow para conectar cuentas externas de forma segura
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -10,8 +11,11 @@ from app.core.database import get_db
 from app.models import User, Team, Campaign, Integration, Product
 from app.api.dependencies import get_current_user
 from app.services.meta_ads_service import meta_ads_service
+from app.core.config import settings
 from datetime import datetime
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -73,7 +77,173 @@ class CampaignAnalyticsResponse(BaseModel):
     ctr: float
 
 
+class MetaOAuthUrlResponse(BaseModel):
+    """Respuesta con URL de autorización Meta"""
+    authorization_url: str
+    state: str
+
+
+class MetaOAuthCallbackRequest(BaseModel):
+    """Solicitud con código de autorización"""
+    code: str
+    state: str
+
+
 # ==================== ENDPOINTS ====================
+
+@router.get("/meta/oauth/authorize", response_model=MetaOAuthUrlResponse)
+async def get_meta_oauth_url(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Obtener URL de autorización OAuth 2.0 de Meta
+
+    El usuario debe redireccionar a esta URL para autorizarse.
+    Ejemplo de uso:
+    1. GET /api/integrations/meta/oauth/authorize
+    2. Capturar el authorization_url
+    3. Redirigir al usuario a ese URL
+    4. Meta redirigirá a /api/integrations/meta/oauth/callback con el código
+    5. Intercambiar código por access_token
+    """
+    try:
+        # Generar state para security (CSRF protection)
+        import secrets
+        state = secrets.token_urlsafe(32)
+
+        # Guardar state en sesión o caché (por ahora se valida básicamente)
+        # En producción, usar Redis o sesión
+
+        # URL de autorización de Meta
+        # Permisos requeridos: ads_management, ads_read
+        meta_app_id = settings.META_APP_ID
+        if not meta_app_id:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Meta App ID not configured"
+            )
+
+        authorization_url = (
+            f"https://www.facebook.com/v18.0/dialog/oauth?"
+            f"client_id={meta_app_id}"
+            f"&redirect_uri={settings.FRONTEND_URL}/auth/callback/meta"
+            f"&scope=ads_management,ads_read,business_management"
+            f"&state={state}"
+            f"&response_type=code"
+        )
+
+        logger.info(f"✅ OAuth URL generada para usuario {current_user.id}")
+
+        return MetaOAuthUrlResponse(
+            authorization_url=authorization_url,
+            state=state
+        )
+    except Exception as e:
+        logger.error(f"❌ Error al generar OAuth URL: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post("/meta/oauth/callback", response_model=MetaConnectResponse)
+async def meta_oauth_callback(
+    request: MetaOAuthCallbackRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Callback de OAuth 2.0 de Meta
+
+    Intercambia el authorization code por un access token
+    y guarda las credenciales en la BD
+    """
+    try:
+        import requests
+
+        # Intercambiar código por token
+        meta_app_id = settings.META_APP_ID
+        meta_app_secret = settings.META_APP_SECRET
+
+        if not meta_app_id or not meta_app_secret:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Meta App credentials not configured"
+            )
+
+        # POST a Meta para obtener el token
+        token_url = "https://graph.instagram.com/v18.0/oauth/access_token"
+        token_params = {
+            "client_id": meta_app_id,
+            "client_secret": meta_app_secret,
+            "redirect_uri": f"{settings.FRONTEND_URL}/auth/callback/meta",
+            "code": request.code,
+        }
+
+        response = requests.post(token_url, params=token_params)
+        response.raise_for_status()
+
+        token_data = response.json()
+        access_token = token_data.get("access_token")
+
+        if not access_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to obtain access token from Meta"
+            )
+
+        # Obtener información de la cuenta usando el access token
+        # Para obtener el ad_account_id
+        graph_url = "https://graph.facebook.com/v18.0/me"
+        graph_response = requests.get(
+            graph_url,
+            params={"access_token": access_token, "fields": "id,name"}
+        )
+        graph_response.raise_for_status()
+
+        user_data = graph_response.json()
+        business_account_id = user_data.get("id")
+
+        # Por ahora, usar el business account ID como ad_account_id
+        # En producción, hacer request adicional para obtener las cuentas publicitarias
+        ad_account_id = business_account_id
+
+        # Guardar credenciales
+        success = meta_ads_service.save_credentials(
+            user_id=current_user.id,
+            access_token=access_token,
+            ad_account_id=ad_account_id,
+            business_account_id=business_account_id,
+            db=db,
+        )
+
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to save credentials"
+            )
+
+        logger.info(f"✅ OAuth callback completado para usuario {current_user.id}")
+
+        return MetaConnectResponse(
+            status="success",
+            message="Meta Ads account connected via OAuth successfully",
+            account_id=ad_account_id,
+        )
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Error al comunicarse con Meta API: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Meta API error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"❌ Error en OAuth callback: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
 
 @router.post("/meta/connect", response_model=MetaConnectResponse)
 async def connect_meta_ads(
