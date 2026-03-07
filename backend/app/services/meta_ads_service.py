@@ -7,15 +7,12 @@ import logging
 from typing import Optional, Dict, List, Any
 from datetime import datetime, timedelta
 from facebook_business.api import FacebookAdsApi
-from facebook_business.objects import (
-    AdAccount,
-    Campaign,
-    AdSet,
-    Ad,
-    AdCreative,
-    AdImage,
-)
-from facebook_business.adobjects.ad_campaign_spec import AdCampaignSpec
+from facebook_business.adobjects.adaccount import AdAccount
+from facebook_business.adobjects.campaign import Campaign
+from facebook_business.adobjects.adset import AdSet
+from facebook_business.adobjects.ad import Ad
+from facebook_business.adobjects.adcreative import AdCreative
+from facebook_business.adobjects.adimage import AdImage
 from app.core.config import settings
 from sqlalchemy.orm import Session
 from app.models import Campaign as CampaignModel, Integration
