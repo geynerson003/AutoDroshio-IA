@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.core.security import hash_password, verify_password, create_access_token
 from app.core.config import settings
 from app.models import User
+from app.api.dependencies import get_current_user
 
 router = APIRouter()
 
@@ -121,35 +122,4 @@ async def get_current_user_info(
     """
     Get current authenticated user info
     """
-    from app.api.dependencies import get_current_user
     return current_user
-
-
-def get_current_user(token: str = Depends(security)) -> User:
-    """Helper to get current user from token"""
-    from app.core.security import decode_token
-    from app.core.database import SessionLocal
-
-    payload = decode_token(token)
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token"
-        )
-
-    user_id = payload.get("sub")
-    db = SessionLocal()
-    user = db.query(User).filter(User.id == user_id).first()
-    db.close()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
-    return user
-
-
-# Import security for dependency
-from app.api.dependencies import security
