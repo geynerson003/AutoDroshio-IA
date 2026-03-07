@@ -19,7 +19,10 @@ class ApiClient {
     this.client.interceptors.request.use((config) => {
       const token = localStorage.getItem('access_token')
       if (token) {
-        config.headers.Authorization = `Bearer ${token}`
+        if (!config.headers) {
+          config.headers = {}
+        }
+        config.headers['Authorization'] = `Bearer ${token}`
       }
       return config
     })
@@ -29,10 +32,14 @@ class ApiClient {
       (response) => response,
       (error) => {
         if (error.response?.status === 401) {
-          // Token expired
-          localStorage.removeItem('access_token')
-          localStorage.removeItem('user')
-          window.location.href = '/login'
+          // Only redirect if trying to access protected resource
+          // Don't redirect during login/register
+          if (!error.config.url.includes('/auth/login') && !error.config.url.includes('/auth/register')) {
+            console.log('[API] 401 Unauthorized, clearing auth')
+            localStorage.removeItem('access_token')
+            localStorage.removeItem('user')
+            window.location.href = '/login'
+          }
         }
         return Promise.reject(error)
       }
@@ -57,6 +64,7 @@ class ApiClient {
     })
     if (response.data.access_token) {
       localStorage.setItem('access_token', response.data.access_token)
+      console.log('[API] Login successful, token stored:', response.data.access_token.substring(0, 20) + '...')
       localStorage.setItem('user', JSON.stringify({
         id: response.data.user_id,
         email: response.data.email,

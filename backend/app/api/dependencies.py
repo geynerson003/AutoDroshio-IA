@@ -5,6 +5,9 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import decode_token
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import logging
+
+logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
 
@@ -14,6 +17,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     Dependency to get the current authenticated user from JWT token
     """
     token = credentials.credentials
+    logger.info(f"🔐 Received token (first 50 chars): {token[:50]}...")
     payload = decode_token(token)
 
     if not payload:
@@ -30,9 +34,9 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             detail="Invalid token payload",
         )
 
-    # Get user from database
+    # Get user from database (sub is stored as string, convert to int)
     from app.models import User
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.id == int(user_id)).first()
 
     if not user:
         raise HTTPException(

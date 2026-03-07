@@ -1,6 +1,9 @@
 """
 Security utilities for JWT tokens and password hashing
 """
+import logging
+
+logger = logging.getLogger(__name__)
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -10,7 +13,8 @@ from pydantic import BaseModel
 from app.core.config import settings
 
 # Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Usamos pbkdf2_sha256 para evitar problemas de compatibilidad con bcrypt en Docker
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
 def hash_password(password: str) -> str:
@@ -47,6 +51,7 @@ def create_access_token(
         )
 
     to_encode.update({"exp": expire})
+    logger.info(f"🔑 Creating token with SECRET_KEY: {settings.SECRET_KEY[:10]}..., sub={data.get('sub')}")
     encoded_jwt = jwt.encode(
         to_encode,
         settings.SECRET_KEY,
@@ -71,8 +76,15 @@ def decode_token(token: str) -> Optional[dict]:
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM]
         )
+        logger.info(f"✅ Token decoded successfully, sub={payload.get('sub')}")
         return payload
-    except JWTError:
+    except JWTError as e:
+        logger.error(f"❌ Token decode failed: {type(e).__name__}: {e}")
+        logger.error(f"   SECRET_KEY used: {settings.SECRET_KEY[:10]}...")
+        logger.error(f"   Token (first 50 chars): {token[:50]}...")
+        return None
+    except Exception as e:
+        logger.error(f"❌ Unexpected token decode error: {type(e).__name__}: {e}")
         return None
 
 
