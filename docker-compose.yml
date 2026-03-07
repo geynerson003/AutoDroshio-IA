@@ -61,7 +61,7 @@ services:
     networks:
       - autodropship_network
 
-  # Frontend React App
+  # Frontend React App (Dev mode with hot-reload)
   frontend:
     build:
       context: ./frontend
@@ -72,7 +72,8 @@ services:
     environment:
       VITE_API_URL: http://localhost:8000
     volumes:
-      - ./frontend/src:/app/src
+      - ./frontend:/app
+      - /app/node_modules
     depends_on:
       - backend
     networks:
