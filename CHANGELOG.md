@@ -1,3 +1,10 @@
+# 1.0.0 (2026-03-13)
+
+
+### Features
+
+* agregar workflow github actions ([58161da](https://github.com/geynerson003/AutoDroshio-IA/commit/58161da90560578c94a85549381a71e4e929b32a))
+
 # 📋 Changelog
 
 ## [1.0.0] - 2026-03-07
